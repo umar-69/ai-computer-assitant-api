@@ -120,6 +120,25 @@ class OverlayWindow(QMainWindow):
         import uuid
         highlight_id = str(uuid.uuid4())
         
+        # Account for device pixel ratio on macOS Retina displays
+        if hasattr(self, 'device_pixel_ratio') and self.device_pixel_ratio > 1.0:
+            # Log original coordinates for debugging
+            print(f"Original coordinates: x={x}, y={y}, w={width}, h={height}")
+            
+            # Apply scaling factor
+            # On macOS with Retina, logical coordinates are different from pixel coordinates
+            if self.is_mac:
+                # On macOS, don't scale coordinates or we'll get double-scaling
+                pass
+            else:
+                # On other platforms, we might need to scale
+                x = int(x * self.device_pixel_ratio)
+                y = int(y * self.device_pixel_ratio)
+                width = int(width * self.device_pixel_ratio)
+                height = int(height * self.device_pixel_ratio)
+            
+            print(f"Adjusted coordinates: x={x}, y={y}, w={width}, h={height}, DPR={self.device_pixel_ratio}")
+        
         # Store highlight data
         self.highlights[highlight_id] = {
             'rect': QRect(x, y, width, height),

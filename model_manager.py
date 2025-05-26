@@ -18,8 +18,9 @@ LLAVA_MODEL_ID = "yorickvp/llava-13b"
 LLAVA_VERSION_HASH = "80537f9eead1a5bfa72d5ac6ea6414379be41d4d4f6679fd776e9535d1eb58bb"
 
 # Gemini models
-GEMINI_MODEL_ID = "gemini-1.5-pro"
-GEMINI_FLASH_ID = "gemini-1.5-flash"  # Faster, smaller model
+GEMINI_MODEL_ID = "gemini-2.5-pro-preview-05-06"
+GEMINI_FLASH_ID = "gemini-1.5-flash" # Keeping 1.5 Flash as the alternative Flash model
+GEMINI_2_5_FLASH_MODEL_ID = "gemini-2.5-flash-preview-04-17"
 
 class ModelManager:
     def __init__(self):
@@ -35,14 +36,16 @@ class ModelManager:
         if self.gemini_api_key:
             genai.configure(api_key=self.gemini_api_key)
             self.gemini_model = genai.GenerativeModel(model_name=GEMINI_MODEL_ID)
-            self.gemini_flash = genai.GenerativeModel(model_name=GEMINI_FLASH_ID)
+            self.gemini_flash_1_5_model = genai.GenerativeModel(model_name=GEMINI_FLASH_ID) # Renamed for clarity
+            self.gemini_2_5_flash_model = genai.GenerativeModel(model_name=GEMINI_2_5_FLASH_MODEL_ID)
         else:
-            print("Warning: GEMINI_API_KEY not found in environment variables")
+            print("Warning: GEMINI_API_KEY not found in environment variables. Gemini models will not be available.")
             self.gemini_model = None
-            self.gemini_flash = None
+            self.gemini_flash_1_5_model = None
+            self.gemini_2_5_flash_model = None
             
         # Current active model
-        self.active_model_id = GEMINI_MODEL_ID  # Default to Gemini
+        self.active_model_id = GEMINI_2_5_FLASH_MODEL_ID  # Default to Gemini 2.5 Flash
         self.active_version_hash = None  # Not used for Gemini
         
         # Warm-up settings
@@ -62,21 +65,29 @@ class ModelManager:
             self.active_model_id = COGAGENT_MODEL_ID
             self.active_version_hash = COGAGENT_VERSION_HASH
             return "CogAgent"
-        elif model_type == "gemini-flash":
+        elif model_type == "gemini-flash": # This refers to 1.5 Flash
             self.active_model_id = GEMINI_FLASH_ID
             self.active_version_hash = None
-            return "Gemini Flash"
-        else:  # Default to Gemini Pro
+            return "Gemini 1.5 Flash"
+        elif model_type == "gemini-2.5-flash": # Explicitly for 2.5 Flash
+            self.active_model_id = GEMINI_2_5_FLASH_MODEL_ID
+            self.active_version_hash = None
+            return "Gemini 2.5 Flash"
+        elif model_type == "gemini": # This refers to Gemini Pro (currently 2.5 Pro Preview)
             self.active_model_id = GEMINI_MODEL_ID
             self.active_version_hash = None
             return "Gemini Pro"
+        else:  # Default to Gemini 2.5 Flash if unknown
+            self.active_model_id = GEMINI_2_5_FLASH_MODEL_ID
+            self.active_version_hash = None
+            return "Gemini 2.5 Flash (Default)"
     
     def call_model(self, image_url, prompt, temperature=0.9):
         """Call the current active model with image and prompt"""
         try:
             # Use Gemini models
-            if self.active_model_id in [GEMINI_MODEL_ID, GEMINI_FLASH_ID]:
-                if not self.gemini_model and not self.gemini_flash:
+            if self.active_model_id in [GEMINI_MODEL_ID, GEMINI_FLASH_ID, GEMINI_2_5_FLASH_MODEL_ID]:
+                if not self.gemini_model and not self.gemini_flash_1_5_model and not self.gemini_2_5_flash_model:
                     return "Error: Gemini models not initialized. Please set GEMINI_API_KEY."
                 
                 # For base64 images
@@ -107,12 +118,17 @@ class ModelManager:
                     image = Image.open(BytesIO(response.content))
                 
                 # Call the appropriate Gemini model based on active_model_id
-                if self.active_model_id == GEMINI_FLASH_ID:
-                    gemini_response = self.gemini_flash.generate_content(
+                if self.active_model_id == GEMINI_FLASH_ID: # This is 1.5 Flash
+                    gemini_response = self.gemini_flash_1_5_model.generate_content(
                         [image, prompt],
                         generation_config={"temperature": min(temperature, 1.0)}
                     )
-                else:  # Default to Pro
+                elif self.active_model_id == GEMINI_2_5_FLASH_MODEL_ID: # This is 2.5 Flash
+                    gemini_response = self.gemini_2_5_flash_model.generate_content(
+                        [image, prompt],
+                        generation_config={"temperature": min(temperature, 1.0)}
+                    )
+                else:  # Default to Pro (GEMINI_MODEL_ID)
                     gemini_response = self.gemini_model.generate_content(
                         [image, prompt],
                         generation_config={"temperature": min(temperature, 1.0)}
@@ -166,10 +182,12 @@ class ModelManager:
             try:
                 print(f"Sending warm-up ping to {self.active_model_id}...")
                 # Use a minimal prompt for keep-warm
-                if self.active_model_id in [GEMINI_MODEL_ID, GEMINI_FLASH_ID]:
-                    if self.active_model_id == GEMINI_FLASH_ID and self.gemini_flash:
-                        self.gemini_flash.generate_content("warm-up ping")
-                    elif self.gemini_model:
+                if self.active_model_id in [GEMINI_MODEL_ID, GEMINI_FLASH_ID, GEMINI_2_5_FLASH_MODEL_ID]:
+                    if self.active_model_id == GEMINI_FLASH_ID and self.gemini_flash_1_5_model: # 1.5 Flash
+                        self.gemini_flash_1_5_model.generate_content("warm-up ping")
+                    elif self.active_model_id == GEMINI_2_5_FLASH_MODEL_ID and self.gemini_2_5_flash_model: # 2.5 Flash
+                        self.gemini_2_5_flash_model.generate_content("warm-up ping")
+                    elif self.active_model_id == GEMINI_MODEL_ID and self.gemini_model: # Pro
                         self.gemini_model.generate_content("warm-up ping")
                 else:
                     # Both CogAgent and LLaVA seem to require/accept an image input.
